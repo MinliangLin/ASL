@@ -8,6 +8,7 @@ from PIL import Image
 import numpy as np
 from glob import glob
 from time import time
+from torch.utils.data import Dataset, DataLoader
 
 parser = argparse.ArgumentParser(description='ASL Inference on a single image')
 
@@ -19,46 +20,68 @@ parser.add_argument('--dataset_type', type=str, default='OpenImages')
 parser.add_argument('--th', type=float, default=0.5)
 parser.add_argument('--show', action="store_true", default=False)
 parser.add_argument('--out', default=None)
+parser.add_argument('--batch', type=int, default=400)
 parser.add_argument('--cpu', action="store_true")
+parser.add_argument('--num_workers', type=int, default=4)
 
+class GlobDataset(Dataset):
+    def __init__(self, glob_path, input_size=448, transform=None):
+        self.input_size = input_size
+        self.transform = transform
+        self.globs = sorted(glob(glob_path))
+
+    def __len__(self):
+        return len(self.globs)
+
+    def __getitem__(self, idx):
+        img = Image.open(self.globs[idx])
+        if self.transform is not None:
+            img = self.transform(img)
+        img = img.resize((self.input_size, self.input_size))
+        np_img = np.array(img, dtype=np.uint8)
+        tensor_img = torch.from_numpy(np_img).permute(2, 0, 1).float() / 255.0  # HWC to CHW
+        return (tensor_img, self.globs[idx])
 
 def main():
     # parsing args
     args = parse_args(parser)
     device = torch.device("cuda" if not args.cpu else "cpu")
-
+    loader = DataLoader(
+        GlobDataset(args.glob, args.input_size),
+        batch_size=args.batch,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True
+    )
     # setup model
-    print('creating and loading the model...')
     state = torch.load(args.model_path, map_location='cpu')
     args.num_classes = state['num_classes']
     model = create_model(args).to(device)
     model.load_state_dict(state['model'], strict=True)
     model.eval()
     classes_list = np.array(list(state['idx_to_class'].values()))
-    print('done\n')
 
     # doing inference
-    print('loading image and doing inference...')
-    start = time()
-    globs = sorted(glob(args.glob))
-    
-    for path in globs:
-        im = Image.open(path)
-        im_resize = im.resize((args.input_size, args.input_size))
-        np_img = np.array(im_resize, dtype=np.uint8)
-        tensor_img = torch.from_numpy(np_img).permute(2, 0, 1).float() / 255.0  # HWC to CHW
-        tensor_batch = torch.unsqueeze(tensor_img, 0).to(device)
-        output = torch.squeeze(torch.sigmoid(model(tensor_batch)))
-        np_output = output.cpu().detach().numpy()
+    def format_pred(np_output):
         detected_classes = classes_list[np_output > args.th]
         prob_output = np_output[np_output > args.th]
-        str_output = ' '.join(['{} {:.3f}'.format(c, p) for c, p in zip(detected_classes, prob_output)])
-        if args.show:
-            print(path, str_output)
-        if args.out:
-            with open(args.out, 'a') as f:
-                f.write(f'{path},{str_output}\n')
-    
+        str_output = ','.join(['{},{:.3f}'.format(c, p) for c, p in zip(detected_classes, prob_output)])
+        return str_output
+
+    start = time()
+    final_output = []
+    with torch.no_grad():
+        for img_batch, path_batch in loader:
+            pred_batch = torch.sigmoid(model(img_batch.to(device)))
+            pred_batch = pred_batch.cpu().detach().numpy()
+            output = '\n'.join([path+','+format_pred(pred) for pred, path in zip(pred_batch, path_batch)])
+            if args.show:
+                print(output)
+            final_output.append(output)
+    if args.out:
+        with open(args.out, 'w') as f:
+            f.write('\n'.join(final_output))
+
     print(f'time: {time()-start}')
 
 if __name__ == '__main__':
