@@ -19,17 +19,19 @@ parser.add_argument('--dataset_type', type=str, default='OpenImages')
 parser.add_argument('--th', type=float, default=0.5)
 parser.add_argument('--show', action="store_true", default=False)
 parser.add_argument('--out', default=None)
+parser.add_argument('--cpu', action="store_true")
 
 
 def main():
     # parsing args
     args = parse_args(parser)
+    device = torch.device("cuda" if not args.cpu else "cpu")
 
     # setup model
     print('creating and loading the model...')
     state = torch.load(args.model_path, map_location='cpu')
     args.num_classes = state['num_classes']
-    model = create_model(args).cuda()
+    model = create_model(args).to(device)
     model.load_state_dict(state['model'], strict=True)
     model.eval()
     classes_list = np.array(list(state['idx_to_class'].values()))
@@ -45,7 +47,7 @@ def main():
         im_resize = im.resize((args.input_size, args.input_size))
         np_img = np.array(im_resize, dtype=np.uint8)
         tensor_img = torch.from_numpy(np_img).permute(2, 0, 1).float() / 255.0  # HWC to CHW
-        tensor_batch = torch.unsqueeze(tensor_img, 0).cuda()
+        tensor_batch = torch.unsqueeze(tensor_img, 0).to(device)
         output = torch.squeeze(torch.sigmoid(model(tensor_batch)))
         np_output = output.cpu().detach().numpy()
         detected_classes = classes_list[np_output > args.th]
