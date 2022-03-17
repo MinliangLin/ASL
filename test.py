@@ -11,19 +11,17 @@ from time import time
 
 parser = argparse.ArgumentParser(description='ASL Inference on a single image')
 
-parser.add_argument('--model_path', type=str, default='./models_local/Open_ImagesV6_TRresNet_L_448.pth')
+parser.add_argument('--model_path', type=str, default='./model/Open_ImagesV6_TRresNet_L_448.pth')
 parser.add_argument('--glob', type=str, default='./pics/000000000885.jpg')
 parser.add_argument('--model_name', type=str, default='tresnet_l')
 parser.add_argument('--input_size', type=int, default=448)
 parser.add_argument('--dataset_type', type=str, default='OpenImages')
-parser.add_argument('--th', type=float, default=None)
+parser.add_argument('--th', type=float, default=0.5)
 parser.add_argument('--show', action="store_true", default=False)
 parser.add_argument('--out', default=None)
 
 
 def main():
-    print('ASL Example Inference code on a single image')
-
     # parsing args
     args = parse_args(parser)
 
@@ -51,11 +49,15 @@ def main():
         output = torch.squeeze(torch.sigmoid(model(tensor_batch)))
         np_output = output.cpu().detach().numpy()
         detected_classes = classes_list[np_output > args.th]
+        prob_output = np_output[np_output > args.th]
+        str_output = ' '.join(['{} {:.3f}'.format(c, p) for c, p in zip(detected_classes, prob_output)])
         if args.show:
-            print(path, f'{list(detected_classes)=}')
+            print(path, str_output)
+        if args.out:
+            with open(args.out, 'a') as f:
+                f.write(f'{path},{str_output}\n')
     
     print(f'time: {time()-start}')
-    print('done\n')
 
 if __name__ == '__main__':
     main()
