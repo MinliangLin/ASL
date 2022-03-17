@@ -28,6 +28,7 @@ class DownsampleJIT(object):
         assert self.filt_size == 3
         assert stride == 2
         a = torch.tensor([1., 2., 1.])
+        self.register_buffer('a_constant_tensor', a)
 
         filt = (a[:, None] * a[None, :]).clone().detach()
         filt = filt / torch.sum(filt)

@@ -3,6 +3,7 @@ from src.helper_functions.helper_functions import parse_args
 from src.loss_functions.losses import AsymmetricLoss, AsymmetricLossOptimized
 from src.models import create_model
 import argparse
+import tqdm
 
 from PIL import Image
 import numpy as np
@@ -20,7 +21,7 @@ parser.add_argument('--dataset_type', type=str, default='OpenImages')
 parser.add_argument('--th', type=float, default=0.5)
 parser.add_argument('--show', action="store_true", default=False)
 parser.add_argument('--out', default=None)
-parser.add_argument('--batch', type=int, default=400)
+parser.add_argument('--batch', type=int, default=300)
 parser.add_argument('--cpu', action="store_true")
 parser.add_argument('--num_workers', type=int, default=4)
 
@@ -34,7 +35,7 @@ class GlobDataset(Dataset):
         return len(self.globs)
 
     def __getitem__(self, idx):
-        img = Image.open(self.globs[idx])
+        img = Image.open(self.globs[idx]).convert('RGB')
         if self.transform is not None:
             img = self.transform(img)
         img = img.resize((self.input_size, self.input_size))
@@ -71,7 +72,7 @@ def main():
     start = time()
     final_output = []
     with torch.no_grad():
-        for img_batch, path_batch in loader:
+        for img_batch, path_batch in tqdm.tqdm(loader):
             pred_batch = torch.sigmoid(model(img_batch.to(device)))
             pred_batch = pred_batch.cpu().detach().numpy()
             output = '\n'.join([path+','+format_pred(pred) for pred, path in zip(pred_batch, path_batch)])
